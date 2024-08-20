@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ReactNode } from "react";
+import React, { useState, ReactNode } from "react";
 import { Box } from "ink";
 import { produce } from "immer";
 import useKeybinds from "@mmorrissey5961/ink-use-keybinds";
@@ -18,6 +18,9 @@ type ULConfig = {
     windowSize?: number | null;
     scrollBar?: boolean;
     scrollMiddle?: boolean;
+    addKeybinds?: boolean;
+    cmdHandler?: any;
+    emitter?: EventEmitter;
 };
 
 type ULState = {

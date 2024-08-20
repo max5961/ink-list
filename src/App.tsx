@@ -1,27 +1,51 @@
-import React, { PropsWithChildren, ReactNode } from "react";
+import React, { PropsWithChildren, ReactNode, useState } from "react";
 import { Box, Text } from "ink";
 import useList from "./List.js";
 import useKeybinds, { KbConfig } from "@mmorrissey5961/ink-use-keybinds";
 import EventEmitter from "events";
+import { randomUUID } from "crypto";
+
+type Item = {
+    id: string;
+    name: string;
+    completed: boolean;
+};
 
 export default function App(): React.ReactNode {
-    const tcs: number[] = [];
-    for (let i = 0; i < 21; ++i) {
-        tcs.push(i);
-    }
+    const [descriptions, setDescriptions] = useState<Item[]>([
+        { id: randomUUID(), name: "apple", completed: false },
+        { id: randomUUID(), name: "banana", completed: false },
+        { id: randomUUID(), name: "pear", completed: false },
+        { id: randomUUID(), name: "milk", completed: false },
+        { id: randomUUID(), name: "eggs", completed: false },
+        { id: randomUUID(), name: "cereal", completed: false },
+        { id: randomUUID(), name: "watermelon", completed: false },
+        { id: randomUUID(), name: "pizza", completed: false },
+        { id: randomUUID(), name: "ice cream", completed: false },
+        { id: randomUUID(), name: "chips", completed: false },
+    ]);
 
-    const items = tcs.map((i) => {
+    const items = descriptions.map((desc, idx) => {
         return (isFocus: boolean) => {
             const color = isFocus ? "blue" : "";
 
+            function onCmd() {
+                const copy = descriptions.slice();
+                copy[idx] = { ...copy[idx], completed: !copy[idx].completed };
+                setDescriptions(copy);
+            }
+
+            let cmpIcon = "";
+            if (desc.completed) {
+                cmpIcon = " ";
+            }
+
             return (
-                <ListItem
-                    key={i}
-                    cmd="return"
-                    onCmd={() => console.log(`Event for item: ${i}`)}
-                >
+                <ListItem key={desc.id} cmd="return" onCmd={onCmd}>
                     <Box>
-                        <Text color={color}>{`> This is item: ${i}`}</Text>
+                        <Text
+                            color={color}
+                        >{`> This is item ${idx + 1}: ${desc.name}${cmpIcon}`}</Text>
                     </Box>
                 </ListItem>
             );

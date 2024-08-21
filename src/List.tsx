@@ -1,12 +1,10 @@
 import React, { useState, ReactNode, useRef, useEffect } from "react";
-import { Box, DOMElement, measureElement, Text } from "ink";
+import { Box, measureElement } from "ink";
 import { produce } from "immer";
 import EventEmitter from "events";
+import ScrollBar from "./Scrollbar.js";
 
-/* Create a hook called 'useList' that returns a List component along with other
- * information which could be considered useful such as idx */
-
-type ULConfig = {
+export type ULConfig = {
     windowSize?: number | null;
     keybinds?: { auto?: boolean; vi?: boolean };
     scrollBar?: boolean;
@@ -15,22 +13,44 @@ type ULConfig = {
     emitter?: EventEmitter;
 };
 
-type ULState = {
+export type ULState = {
     idx: number;
     start: number;
     end: number;
     mid: number;
 };
 
-/* Returns a built List of items along with incrementIdx(), decrementIdx(), and
- * idx */
+export type ListWindow = {
+    /* Used within the List component */
+    start: number;
+    mid: number;
+    end: number;
+    idx: number;
+    windowSize: number;
+    listSize: number;
+
+    /* Used with useKeybinds or useInput hook to emit a command that the ListItem
+     * component can include a callback for */
+    emitter: EventEmitter;
+};
+
+export type ListUtil = {
+    idx: number;
+    incrementIdx: () => void;
+    decrementIdx: () => void;
+    goToIdx: (n: number) => void;
+    emitter: EventEmitter;
+};
 
 export default function useList(
-    items: ((isFocus: boolean) => ReactNode)[],
+    /* The amount of items to create a list for (the .length property).  NOT the last
+     * index of of the items.  Rather than encapsulate this hook within the List
+     * component, this gives more freedom to the user to utilize the list data at
+     * the cost of some added complexity. */
+    listSize: number,
     opts: ULConfig = {},
-) {
+): { listWindow: ListWindow; util: ListUtil } {
     /* Set default opts but override if provided */
-    // opts = { trackState: false, ...opts };
     opts = {
         windowSize: null,
         scrollBar: false,
@@ -40,7 +60,7 @@ export default function useList(
     };
     opts.keybinds = opts.keybinds || { auto: true, vi: true };
 
-    const MAX_INDEX = items.length - 1;
+    const MAX_INDEX = listSize - 1;
     const WINDOW_SIZE = opts.windowSize || MAX_INDEX + 1;
 
     const windowState = {
@@ -74,7 +94,7 @@ export default function useList(
         handleIdxChanges(state, nextIdx);
     }
 
-    if (state.idx > MAX_INDEX && items.length !== 0) {
+    if (state.idx > MAX_INDEX && listSize !== 0) {
         handleIdxChanges(state, state.idx);
     }
 
@@ -86,7 +106,6 @@ export default function useList(
     function handleIdxChanges(state: ULState, nextIdx: number) {
         const nextState = produce(state, (draft) => {
             if (draft.start === 0 && draft.end === 0) {
-                console.log("ayo");
                 return;
             }
 
@@ -104,7 +123,7 @@ export default function useList(
                 return;
             }
 
-            // handle set idx out of list range (deleting items)
+            // handle set idx out of list range (deleting items at the end of the list)
             if (draft.idx > MAX_INDEX) {
                 while (draft.idx > MAX_INDEX) {
                     --draft.idx;
@@ -137,134 +156,120 @@ export default function useList(
 
     const emitter = opts.emitter || new EventEmitter();
 
-    const slicedItems: ReactNode[] = items
+    /* This must be passed into the List component */
+    const listWindow = {
+        /* Used within the List component */
+        start: state.start,
+        mid: state.mid,
+        end: state.end,
+        idx: state.idx,
+        windowSize: WINDOW_SIZE,
+        listSize,
+
+        /* Used with useKeybinds or useInput hook to emit a command that the ListItem
+         * component can include a callback for */
+        emitter,
+    };
+
+    const util = {
+        idx: state.idx,
+        incrementIdx,
+        decrementIdx,
+        goToIdx,
+        emitter,
+    };
+
+    return {
+        listWindow,
+        util,
+    };
+}
+
+type ListProps = {
+    listItems: ((isFocus: boolean) => React.ReactNode)[];
+    listWindow: ListWindow;
+    scrollBar?: boolean;
+    scrollMiddle?: boolean;
+};
+
+export function List({
+    listItems,
+    listWindow,
+    scrollBar = true,
+    scrollMiddle = false,
+}: ListProps): ReactNode {
+    const [hw, setHw] = useState<{ height: number; width: number }>({
+        height: 0,
+        width: 0,
+    });
+
+    const ref = useRef();
+
+    const slicedItems: ReactNode[] = listItems
+        // Create the nodes
         .map((item, idx) => {
-            const node = item(idx === state.idx) as React.ReactElement;
-            if (idx === state.idx) {
+            const node = item(idx === listWindow.idx) as React.ReactElement;
+
+            if (idx === listWindow.idx) {
                 const clonedNode = React.cloneElement(node, {
-                    emitter,
+                    _emitter: listWindow.emitter,
                 });
                 return clonedNode;
             } else {
                 return node;
             }
         })
-        .slice(state.start, state.end);
 
-    const list = () => (
-        <List
-            items={slicedItems}
-            window={{
-                start: state.start,
-                mid: state.mid,
-                end: state.end,
-                windowSize: WINDOW_SIZE,
-                length: items.length,
-            }}
-        />
-    );
-
-    return {
-        /* The List component contains the sliced window of the items */
-        List: list,
-
-        /* Used with useKeybinds or useInput hook to emit a command that the ListItem
-         * component can include a callback for */
-        emitter,
-
-        /* The current index of the entire list of of ListItems*/
-        idx: state.idx,
-
-        /* If chosen to not use the default keybinds, modify the focus and window
-         * slice outside of this hook */
-        incrementIdx,
-        decrementIdx,
-        goToIdx,
-    };
-}
-
-type ListProps = {
-    items: React.ReactNode[] | React.ReactElement[];
-    window: {
-        start: number;
-        mid: number;
-        end: number;
-        windowSize: number;
-        length: number;
-    };
-    scrollBar?: boolean;
-    scrollMiddle?: boolean;
-};
-
-/* The pattern of returning the entirely built List every time means we are doing
- * a re-render of the entire List on every state change which is a problem for
- * measuring the element height (and performance) since we need to make sure the
- * component is mounted before we can access the ref that measureElement uses */
-export function List({
-    items,
-    window,
-    scrollBar = false,
-    scrollMiddle = false,
-}: ListProps): ReactNode {
-    const ref = useRef();
-
-    const dim = { height: 0, width: 0 };
+        // Slice according to window dimensions
+        .slice(listWindow.start, listWindow.end);
 
     useEffect(() => {
-        const { width, height } = measureElement(ref.current as any);
-        dim.height = height;
-        dim.width = width;
-        // console.log(`width: ${width}, height: ${height}`);
-    }, []);
+        if (scrollBar) {
+            const { width, height } = measureElement(ref.current as any);
+            setHw({ height, width });
+        }
+    }, [listItems, listWindow]);
 
     return (
         <Box
             flexDirection="row"
-            ref={ref as any}
             borderStyle="round"
             justifyContent="space-between"
             width="50%"
         >
-            <Box flexDirection="column">{items}</Box>
-            {scrollBar && <ScrollBar window={window} dim={dim} />}
+            <Box display="flex" flexDirection="column">
+                <Box flexShrink={1} flexDirection="column" ref={ref as any}>
+                    {slicedItems}
+                </Box>
+                <Box flexGrow={1}></Box>
+            </Box>
+            {scrollBar && (
+                <ScrollBar
+                    listWindow={listWindow}
+                    height={hw.height}
+                    width={hw.width}
+                />
+            )}
         </Box>
     );
 }
 
-function ScrollBar({
-    window,
-    dim,
-}: Pick<ListProps, "window"> & {
-    dim: { height: number; width: number };
-}): React.ReactNode {
-    const { start, mid, end, windowSize, length } = window;
+type LIProps = React.PropsWithChildren & {
+    onCmd?: { [key: string]: () => any };
+    _emitter?: EventEmitter;
+};
 
-    // windowSize / length gets the relative percentage of the window to all items
-    // line height * (windowSize / length) gets the lines the bar should take up
-    const barHeight = Math.ceil(7 * (windowSize / length));
+export function ListItem({
+    children,
+    onCmd,
+    _emitter,
+}: LIProps): React.ReactNode {
+    if (_emitter && onCmd) {
+        Object.entries(onCmd).forEach((entry) => {
+            const [cmd, on] = entry;
+            _emitter.on(cmd, on);
+        });
+    }
 
-    const preStart = 7 * (start / length);
-    const preEnd = 7 * ((length - end) / length);
-
-    const startHeight = Math.floor(preStart);
-    const endHeight = Math.floor(preEnd);
-
-    // console.log(`${startHeight}, ${barHeight}, ${endHeight}`);
-
-    return (
-        <>
-            <Box flexDirection="column" height="100%" paddingRight={1}>
-                {new Array(startHeight).fill(0).map((_, idx) => {
-                    return <Text key={idx}> </Text>;
-                })}
-                {new Array(barHeight).fill(0).map((_, idx) => {
-                    // prettier-ignore
-                    return <Text key={idx} backgroundColor="blue"> </Text>;
-                })}
-                {new Array(endHeight).fill(0).map((_, idx) => {
-                    return <Text key={idx}> </Text>;
-                })}
-            </Box>
-        </>
-    );
+    return <>{children}</>;
 }

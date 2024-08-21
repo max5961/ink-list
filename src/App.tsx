@@ -8,8 +8,16 @@ import { Item, initialItems, keybinds } from "./initialData.js";
 export default function App(): React.ReactNode {
     const [items, setItems] = useState<Item[]>(initialItems);
     const [shoutout, setShoutout] = useState<string>("");
+    const [left, setLeft] = useState(true);
 
     const { listWindow, util } = useList(items.length, { windowSize: 5 });
+
+    /* _____ DEBUG _____ */
+    // console.log(`start: ${listWindow.start}`);
+    // console.log(`end: ${listWindow.end}`);
+    // console.log(`idx: ${listWindow.idx}`);
+    // console.log(`listSize: ${listWindow.listSize}`);
+    // console.log(`items.length: ${items.length}\n`);
 
     const itemNodes = items.map((desc, idx) => {
         return (isFocus: boolean) => {
@@ -56,23 +64,23 @@ export default function App(): React.ReactNode {
 
     useKeybinds((cmd) => {
         if (cmd) {
-            util.emitter.emit(cmd);
+            left && util.emitter.emit(cmd);
         }
 
         if (cmd === "increment") {
-            util.incrementIdx();
+            left && util.incrementIdx();
         }
 
         if (cmd === "decrement") {
-            util.decrementIdx();
+            left && util.decrementIdx();
         }
 
         if (cmd === "goToTop") {
-            util.goToIdx(0);
+            left && util.goToIdx(0);
         }
 
         if (cmd === "goToBottom") {
-            util.goToIdx(items.length - 1);
+            left && util.goToIdx(items.length - 1);
         }
     }, keybinds);
 
@@ -81,11 +89,13 @@ export default function App(): React.ReactNode {
             <Box>
                 <Text>{`Last shoutout was: ${shoutout}`}</Text>
             </Box>
-            <List
-                listItems={itemNodes}
-                listWindow={listWindow}
-                scrollBar={true}
-            />
+            <Box display="flex">
+                <List
+                    listItems={itemNodes}
+                    listWindow={listWindow}
+                    scrollBar={true}
+                />
+            </Box>
         </>
     );
 }

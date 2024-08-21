@@ -3,6 +3,8 @@ import { Box, measureElement } from "ink";
 import { produce } from "immer";
 import EventEmitter from "events";
 import ScrollBar from "./Scrollbar.js";
+import * as _ from "lodash";
+import deepEqual from "deep-equal";
 
 export type ULConfig = {
     windowSize?: number | null;
@@ -42,6 +44,7 @@ export type ListUtil = {
     emitter: EventEmitter;
 };
 
+let idx = -1;
 export default function useList(
     /* The amount of items to create a list for (the .length property).  NOT the last
      * index of of the items.  Rather than encapsulate this hook within the List
@@ -78,36 +81,58 @@ export default function useList(
     };
 
     const [state, setState] = useState<ULState>(windowState);
+    // console.log(`${state.end}, ${MAX_INDEX}`);
+
+    /* Entry point to modify window slice that always runs, so this runs on every
+     * state change made to the component that calls this hook.  It slices the
+     * input array from start to (but not including) end */
+    if (state.idx < 0) {
+        handleIdxChanges(0);
+    } else {
+        handleIdxChanges();
+    }
 
     function incrementIdx(): void {
         if (state.idx >= MAX_INDEX) return;
-        handleIdxChanges(state, state.idx + 1);
+        handleIdxChanges(state.idx + 1);
     }
 
     function decrementIdx(): void {
         if (state.idx <= 0) return;
-        handleIdxChanges(state, state.idx - 1);
+        handleIdxChanges(state.idx - 1);
     }
 
     function goToIdx(nextIdx: number): void {
         if (nextIdx > MAX_INDEX || nextIdx < 0) return;
-        handleIdxChanges(state, nextIdx);
+        handleIdxChanges(nextIdx);
     }
 
     if (state.idx > MAX_INDEX && listSize !== 0) {
-        handleIdxChanges(state, state.idx);
+        handleIdxChanges();
     }
 
     if (state.idx < 0) {
-        handleIdxChanges(state, 0);
+        handleIdxChanges(0);
     }
 
-    // This will need to be executed on every state change which it is not currently
-    function handleIdxChanges(state: ULState, nextIdx: number) {
+    function handleIdxChanges(nextIdx: number = state.idx) {
         const nextState = produce(state, (draft) => {
             if (draft.start === 0 && draft.end === 0) {
                 return;
             }
+
+            // This solves the issue, but shortens the list when deleting last
+            // item in the list when that shortens the slice to WINDOW_SIZE
+            if (draft.end > listSize && listSize > WINDOW_SIZE) {
+                while (draft.end > listSize && draft.start > 0) {
+                    --draft.end;
+                    --draft.start;
+                    --draft.idx;
+                }
+                return;
+            }
+
+            // if (draft.end > listSize && listSize < )
 
             draft.idx = nextIdx;
 
@@ -149,9 +174,30 @@ export default function useList(
                     --draft.end;
                 }
             }
+
+            // This causes an infinite loop somehow
+            // while (draft.end > MAX_INDEX && draft.start > 0) {
+            //     --draft.end;
+            //     --draft.start;
+            // }
+            // // handle window gets cut short
+            // const currSize = draft.end - draft.start;
+            // // currSize is NEVER getting smaller except at end
+            // // console.log(currSize);
+            // if (currSize < WINDOW_SIZE) {
+            //     while (draft.end + 1 <= MAX_INDEX && currSize < WINDOW_SIZE) {
+            //         ++draft.end;
+            //     }
+            //
+            //     while (draft.start - 1 >= 0 && currSize < WINDOW_SIZE) {
+            //         --draft.start;
+            //     }
+            // }
         });
 
-        setState(nextState);
+        if (!deepEqual(state, nextState)) {
+            setState(nextState);
+        }
     }
 
     const emitter = opts.emitter || new EventEmitter();

@@ -34,7 +34,7 @@ function ScrollBar({ listWindow, height, width }: SBProps): React.ReactNode {
                 })}
                 {new Array(barHeight).fill(0).map((_, idx) => {
                     // prettier-ignore
-                    return <Text key={idx} backgroundColor="blue"> </Text>;
+                    return <Text key={idx} backgroundColor="white"> </Text>;
                 })}
                 {new Array(endHeight).fill(0).map((_, idx) => {
                     return <Text key={idx}> </Text>;

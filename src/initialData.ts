@@ -38,4 +38,5 @@ export const keybinds = {
     deleteItem: { input: "dd" },
     scrollDown: { key: "ctrl", input: "d" },
     scrollUp: { key: "ctrl", input: "u" },
+    toggleWhichList: { input: "ll" },
 } satisfies KbConfig;

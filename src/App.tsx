@@ -23,15 +23,36 @@ export default function App(): React.ReactNode {
         { id: randomUUID(), name: "pizza", completed: false },
         { id: randomUUID(), name: "ice cream", completed: false },
         { id: randomUUID(), name: "chips", completed: false },
+        { id: randomUUID(), name: "soda", completed: false },
+        { id: randomUUID(), name: "raisin bran", completed: false },
+        { id: randomUUID(), name: "capn crunch", completed: false },
+        { id: randomUUID(), name: "cantelope", completed: false },
+        { id: randomUUID(), name: "bread", completed: false },
+        { id: randomUUID(), name: "frozen pizzas", completed: false },
+        { id: randomUUID(), name: "candy", completed: false },
+        { id: randomUUID(), name: "pasta", completed: false },
     ]);
 
     const items = descriptions.map((desc, idx) => {
         return (isFocus: boolean) => {
             const color = isFocus ? "blue" : "";
 
-            function onCmd() {
+            function toggleDone() {
                 const copy = descriptions.slice();
-                copy[idx] = { ...copy[idx], completed: !copy[idx].completed };
+                copy[idx] = {
+                    ...copy[idx],
+                    completed: !copy[idx].completed,
+                };
+                setDescriptions(copy);
+            }
+
+            function sayBrodude() {
+                console.log(`Ayo we at ${idx} and this is me saying brodude\n`);
+            }
+
+            function deleteItem() {
+                const copy = descriptions.slice();
+                copy.splice(idx, 1);
                 setDescriptions(copy);
             }
 
@@ -41,7 +62,10 @@ export default function App(): React.ReactNode {
             }
 
             return (
-                <ListItem key={desc.id} cmd="return" onCmd={onCmd}>
+                <ListItem
+                    key={desc.id}
+                    onCmd={{ toggleDone, sayBrodude, deleteItem }}
+                >
                     <Box>
                         <Text
                             color={color}
@@ -52,19 +76,30 @@ export default function App(): React.ReactNode {
         };
     });
 
-    /* It appears we have a bit of a snafu!  Idx is generated from the items
-     * argument, but each item needs to know their idx so they can highlight! */
-    const { List, incrementIdx, decrementIdx, idx } = useList(items, {
-        windowSize: 5,
-    });
+    const { List, idx, incrementIdx, decrementIdx, goToIdx, emitter } = useList(
+        items,
+        {
+            windowSize: 7,
+        },
+    );
 
     const kbs = {
         increment: [{ input: "j" }, { key: "downArrow" }],
         decrement: [{ input: "k" }, { key: "upArrow" }],
-        enter: { key: "return" },
+        goToTop: { input: "gg" },
+        goToBottom: { input: "G" },
+        toggleDone: { key: "return" },
+        sayBrodude: [{ input: "bd" }, { input: "BD" }],
+        deleteItem: { input: "dd" },
+        scrollDown: { key: "ctrl", input: "d" },
+        scrollUp: { key: "ctrl", input: "u" },
     } satisfies KbConfig;
 
     useKeybinds((cmd) => {
+        if (cmd) {
+            emitter.emit(cmd);
+        }
+
         if (cmd === "increment") {
             incrementIdx();
         }
@@ -72,20 +107,30 @@ export default function App(): React.ReactNode {
         if (cmd === "decrement") {
             decrementIdx();
         }
+
+        if (cmd === "goToTop") {
+            goToIdx(0);
+        }
+
+        if (cmd === "goToBottom") {
+            goToIdx(items.length - 1);
+        }
     }, kbs);
 
     return <List />;
 }
 
 type LIProps = PropsWithChildren & {
-    onCmd?: () => void;
-    cmd?: string;
+    onCmd?: { [key: string]: () => any };
     emitter?: EventEmitter;
 };
 
-function ListItem({ children, onCmd, cmd, emitter }: LIProps): React.ReactNode {
-    if (emitter && cmd && onCmd) {
-        emitter.on(cmd, onCmd);
+function ListItem({ children, onCmd, emitter }: LIProps): React.ReactNode {
+    if (emitter && onCmd) {
+        Object.entries(onCmd).forEach((entry) => {
+            const [cmd, on] = entry;
+            emitter.on(cmd, on);
+        });
     }
 
     return <>{children}</>;

@@ -1,25 +1,10 @@
-import React, {
-    useState,
-    ReactNode,
-    useRef,
-    useEffect,
-    LegacyRef,
-    MutableRefObject,
-} from "react";
+import React, { useState, ReactNode, useRef, useEffect } from "react";
 import { Box, DOMElement, measureElement, Text } from "ink";
 import { produce } from "immer";
-import useKeybinds from "@mmorrissey5961/ink-use-keybinds";
 import EventEmitter from "events";
 
 /* Create a hook called 'useList' that returns a List component along with other
  * information which could be considered useful such as idx */
-
-type WindowState = {
-    start: number;
-    end: number;
-    mid: number;
-    windowSize: number;
-};
 
 type ULConfig = {
     windowSize?: number | null;
@@ -89,8 +74,22 @@ export default function useList(
         handleIdxChanges(state, nextIdx);
     }
 
+    if (state.idx > MAX_INDEX && items.length !== 0) {
+        handleIdxChanges(state, state.idx);
+    }
+
+    if (state.idx < 0) {
+        handleIdxChanges(state, 0);
+    }
+
+    // This will need to be executed on every state change which it is not currently
     function handleIdxChanges(state: ULState, nextIdx: number) {
         const nextState = produce(state, (draft) => {
+            if (draft.start === 0 && draft.end === 0) {
+                console.log("ayo");
+                return;
+            }
+
             draft.idx = nextIdx;
 
             if (draft.idx === draft.end) {
@@ -105,7 +104,17 @@ export default function useList(
                 return;
             }
 
-            // handle set idx out of window range
+            // handle set idx out of list range (deleting items)
+            if (draft.idx > MAX_INDEX) {
+                while (draft.idx > MAX_INDEX) {
+                    --draft.idx;
+                    --draft.end;
+                    draft.start - 1 >= 0 && --draft.start;
+                }
+                return;
+            }
+
+            // handle set idx greater than window range
             if (draft.idx > draft.end) {
                 while (draft.idx >= draft.end && draft.end <= MAX_INDEX) {
                     ++draft.start;
@@ -114,6 +123,7 @@ export default function useList(
                 return;
             }
 
+            // handle set idx less than window range
             if (draft.idx < draft.start) {
                 while (draft.idx < draft.start && draft.start >= 0) {
                     --draft.start;
@@ -187,11 +197,13 @@ type ListProps = {
 };
 
 /* The pattern of returning the entirely built List every time means we are doing
- * a re-render of the entire List on every state change which is a problem */
+ * a re-render of the entire List on every state change which is a problem for
+ * measuring the element height (and performance) since we need to make sure the
+ * component is mounted before we can access the ref that measureElement uses */
 export function List({
     items,
     window,
-    scrollBar = true,
+    scrollBar = false,
     scrollMiddle = false,
 }: ListProps): ReactNode {
     const ref = useRef();
@@ -225,21 +237,11 @@ function ScrollBar({
 }: Pick<ListProps, "window"> & {
     dim: { height: number; width: number };
 }): React.ReactNode {
-    // console.log(dim);
     const { start, mid, end, windowSize, length } = window;
+
     // windowSize / length gets the relative percentage of the window to all items
     // line height * (windowSize / length) gets the lines the bar should take up
-
     const barHeight = Math.ceil(7 * (windowSize / length));
-
-    // midIdx is used to determine if we should round up or down for the start/end padding
-    //
-    // if start is less than midIdx we want to make sure it rounds down so that
-    // we don't get any gaps we don't want at the start
-    //
-    // if end is greater than midIdx we want to make sure it rounds down, for the
-    // same reason as start
-    const midIdx = Math.floor(windowSize / 2);
 
     const preStart = 7 * (start / length);
     const preEnd = 7 * ((length - end) / length);

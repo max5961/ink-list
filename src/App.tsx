@@ -69,7 +69,7 @@ export default function App(): React.ReactNode {
                     <Box>
                         <Text
                             color={color}
-                        >{`> This is item ${idx + 1}: ${desc.name}${cmpIcon}`}</Text>
+                        >{`> This is item ${idx}: ${desc.name}${cmpIcon}`}</Text>
                     </Box>
                 </ListItem>
             );

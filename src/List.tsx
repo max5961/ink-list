@@ -3,8 +3,10 @@ import { Box, measureElement } from "ink";
 import { produce } from "immer";
 import EventEmitter from "events";
 import ScrollBar from "./Scrollbar.js";
-import * as _ from "lodash";
 import deepEqual from "deep-equal";
+import { KbConfig } from "@mmorrissey5961/ink-use-keybinds";
+import { useContext, createContext } from "react";
+import assert from "assert";
 
 export type ULConfig = {
     windowSize?: number | null;
@@ -44,7 +46,6 @@ export type ListUtil = {
     emitter: EventEmitter;
 };
 
-let idx = -1;
 export default function useList(
     /* The amount of items to create a list for (the .length property).  NOT the last
      * index of of the items.  Rather than encapsulate this hook within the List
@@ -231,19 +232,22 @@ export default function useList(
     };
 }
 
-type ListProps = {
-    listItems: ((isFocus: boolean) => React.ReactNode)[];
+interface ItemGen<T extends KbConfig = any> {
+    (isFocus: boolean, onCmd: OnCmd<T>): React.ReactNode;
+}
+
+type ListProps<T extends KbConfig = any> = {
+    listItems: ItemGen<T>[];
     listWindow: ListWindow;
     scrollBar?: boolean;
     scrollMiddle?: boolean;
 };
 
-export function List({
+export function List<T extends KbConfig = any>({
     listItems,
     listWindow,
     scrollBar = true,
-    scrollMiddle = false,
-}: ListProps): ReactNode {
+}: ListProps<T>): ReactNode {
     const [hw, setHw] = useState<{ height: number; width: number }>({
         height: 0,
         width: 0,
@@ -253,17 +257,27 @@ export function List({
 
     const slicedItems: ReactNode[] = listItems
         // Create the nodes
-        .map((item, idx) => {
-            const node = item(idx === listWindow.idx) as React.ReactElement;
+        .map((item: ItemGen, idx: number) => {
+            const onCmd: OnCmd<T> = (...args: Parameters<OnCmd>) => {
+                if (idx === listWindow.idx) {
+                    listWindow.emitter.on(args[0], args[1]);
+                }
+            };
 
-            if (idx === listWindow.idx) {
-                const clonedNode = React.cloneElement(node, {
-                    _emitter: listWindow.emitter,
-                });
-                return clonedNode;
-            } else {
-                return node;
-            }
+            const node = item(idx === listWindow.idx, onCmd);
+
+            const key = (node as React.ReactElement).key;
+
+            return (
+                <ListItem
+                    key={key}
+                    onCmd={onCmd}
+                    isFocus={idx === listWindow.idx}
+                    emitter={listWindow.emitter}
+                >
+                    {node}
+                </ListItem>
+            );
         })
 
         // Slice according to window dimensions
@@ -300,22 +314,69 @@ export function List({
     );
 }
 
-type LIProps = React.PropsWithChildren & {
-    onCmd?: { [key: string]: () => any };
-    _emitter?: EventEmitter;
+export type OnCmd<T extends object = any> = (
+    cmd: T extends object
+        ? keyof T extends string | symbol
+            ? keyof T
+            : never
+        : string,
+    handler: (...args: any[]) => any,
+) => void;
+
+type LIProps<T extends KbConfig = any> = React.PropsWithChildren & {
+    isFocus: boolean;
+    onCmd: OnCmd<T>;
+    emitter: EventEmitter;
 };
 
-export function ListItem({
+type LIContext<T extends KbConfig = any> = {
+    onCmd: OnCmd<T>;
+    isFocus: boolean;
+    emitter: EventEmitter;
+};
+
+const ListItemContext = createContext<LIContext | null>(null);
+
+export function ListItem<T extends KbConfig = any>({
     children,
     onCmd,
-    _emitter,
-}: LIProps): React.ReactNode {
-    if (_emitter && onCmd) {
-        Object.entries(onCmd).forEach((entry) => {
-            const [cmd, on] = entry;
-            _emitter.on(cmd, on);
-        });
-    }
+    emitter,
+    isFocus,
+}: LIProps<T>): React.ReactNode {
+    return (
+        <ListItemContext.Provider
+            value={{
+                isFocus,
+                onCmd,
+                emitter,
+            }}
+        >
+            {children}
+        </ListItemContext.Provider>
+    );
+}
 
-    return <>{children}</>;
+export function useListItemContext(): LIContext {
+    const context = useContext(ListItemContext);
+
+    const errMsg =
+        "It appears that you are attempting to use ListItemContext outside the context of the List component";
+    assert(context, errMsg);
+
+    return context;
+}
+
+export function useOnCmd<T extends object = any>(): OnCmd<T> {
+    const context = useListItemContext();
+    return context.onCmd;
+}
+
+export function useIsFocus(): boolean {
+    const context = useListItemContext();
+    return context.isFocus;
+}
+
+export function useListItemEmitter(): EventEmitter {
+    const context = useListItemContext();
+    return context.emitter;
 }

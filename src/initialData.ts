@@ -39,4 +39,7 @@ export const keybinds = {
     scrollDown: { key: "ctrl", input: "d" },
     scrollUp: { key: "ctrl", input: "u" },
     toggleWhichList: { input: "ll" },
+    windowSize5: { input: "w5" },
+    windowSize10: { input: "w1" },
+    incState: { input: "ss" },
 } satisfies KbConfig;

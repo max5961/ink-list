@@ -255,18 +255,24 @@ export function List<T extends KbConfig = any>({
 
     const ref = useRef();
 
-    const slicedItems: ReactNode[] = listItems
+    const generatedItems: ReactNode[] = listItems
         // Create the nodes
         .map((item: ItemGen, idx: number) => {
             const onCmd: OnCmd<T> = (...args: Parameters<OnCmd>) => {
-                if (idx === listWindow.idx) {
-                    listWindow.emitter.on(args[0], args[1]);
-                }
+                if (idx !== listWindow.idx) return;
+
+                /* Make sure that on every re-render we are using the most recent
+                 * handler which prevents stale closure as well as  unneccessary
+                 * listeners that will lead to max listener warnings */
+                listWindow.emitter.removeAllListeners(args[0]);
+                listWindow.emitter.on(args[0], args[1]);
             };
 
             const node = item(idx === listWindow.idx, onCmd);
 
             const key = (node as React.ReactElement).key;
+
+            const isHidden = idx < listWindow.start || idx >= listWindow.end;
 
             return (
                 <ListItem
@@ -274,14 +280,12 @@ export function List<T extends KbConfig = any>({
                     onCmd={onCmd}
                     isFocus={idx === listWindow.idx}
                     emitter={listWindow.emitter}
+                    isHidden={isHidden}
                 >
                     {node}
                 </ListItem>
             );
-        })
-
-        // Slice according to window dimensions
-        .slice(listWindow.start, listWindow.end);
+        });
 
     useEffect(() => {
         if (scrollBar) {
@@ -299,9 +303,9 @@ export function List<T extends KbConfig = any>({
         >
             <Box display="flex" flexDirection="column">
                 <Box flexShrink={1} flexDirection="column" ref={ref as any}>
-                    {slicedItems}
+                    {generatedItems}
                 </Box>
-                <Box flexGrow={1}></Box>
+                <Box flexGrow={1}></Box>;
             </Box>
             {scrollBar && (
                 <ScrollBar
@@ -327,6 +331,7 @@ type LIProps<T extends KbConfig = any> = React.PropsWithChildren & {
     isFocus: boolean;
     onCmd: OnCmd<T>;
     emitter: EventEmitter;
+    isHidden?: boolean;
 };
 
 type LIContext<T extends KbConfig = any> = {
@@ -342,6 +347,7 @@ export function ListItem<T extends KbConfig = any>({
     onCmd,
     emitter,
     isFocus,
+    isHidden = false,
 }: LIProps<T>): React.ReactNode {
     return (
         <ListItemContext.Provider
@@ -351,7 +357,13 @@ export function ListItem<T extends KbConfig = any>({
                 emitter,
             }}
         >
-            {children}
+            {isHidden ? (
+                <Box height={0} width={0} overflow="hidden">
+                    {children}
+                </Box>
+            ) : (
+                <Box>{children}</Box>
+            )}
         </ListItemContext.Provider>
     );
 }

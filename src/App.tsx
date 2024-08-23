@@ -1,8 +1,7 @@
-import React, { useContext, useState } from "react";
+import React, { useState } from "react";
 import { Box, Text } from "ink";
-import useList, { List, OnCmd, useOnCmd } from "./List.js";
+import useList, { List, OnCmd, useIsFocus, useOnCmd } from "./List.js";
 import useKeybinds from "@mmorrissey5961/ink-use-keybinds";
-import { ListItem } from "./List.js";
 import { Item, initialItems, keybinds } from "./initialData.js";
 
 export default function App(): React.ReactNode {
@@ -113,10 +112,20 @@ function NestedListItem(): React.ReactNode {
     const [state, setState] = useState<number>(0);
 
     const onCmd = useOnCmd<typeof keybinds>();
+    const isFocus = useIsFocus();
+    const color = isFocus ? "blue" : "";
 
-    onCmd("incState", () => {
+    onCmd("incSubCount", () => {
         setState(state + 1);
     });
 
-    return <Text>{` ${state}`}</Text>;
+    onCmd("decSubCount", () => {
+        setState(state - 1);
+    });
+
+    return (
+        <>
+            <Text color={color}>{` ${state}`}</Text>
+        </>
+    );
 }

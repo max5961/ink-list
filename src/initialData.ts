@@ -41,5 +41,6 @@ export const keybinds = {
     toggleWhichList: { input: "ll" },
     windowSize5: { input: "w5" },
     windowSize10: { input: "w1" },
-    incState: { input: "ss" },
+    incSubCount: { input: "l" },
+    decSubCount: { input: "h" },
 } satisfies KbConfig;

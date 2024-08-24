@@ -7,24 +7,20 @@ import { Item, initialItems, keybinds } from "./initialData.js";
 export default function App(): React.ReactNode {
     const [items, setItems] = useState<Item[]>(initialItems);
     const [shoutout, setShoutout] = useState<string>("");
-    const [ws, setWs] = useState<number>(5);
-    // if (items.length < 10) {
-    //     console.log(items.length);
-    // }
 
     const { viewState, util } = useList(items.length, {
-        windowSize: ws,
-        centerScroll: false,
+        windowSize: 5,
+        centerScroll: true,
     });
 
     /* _____ DEBUG _____ */
-    // console.log(`start: ${listWindow.start}`);
-    // console.log(`end: ${listWindow.end}`);
-    // console.log(`idx: ${listWindow.idx}`);
-    // console.log(`listSize: ${listWindow.listSize}`);
+    // console.log(`start: ${viewState._start}`);
+    // console.log(`end: ${viewState._end}`);
+    // console.log(`idx: ${viewState._idx}`);
+    // console.log(`listSize: ${viewState._listSize}`);
     // console.log(`items.length: ${items.length}\n`);
 
-    const itemNodes = items.map((desc, idx) => {
+    const itemGenerators = items.map((desc, idx) => {
         return (isFocus: boolean, onCmd: OnCmd<typeof keybinds>) => {
             const color = isFocus ? "blue" : "";
 
@@ -44,7 +40,7 @@ export default function App(): React.ReactNode {
             onCmd("deleteItem", () => {
                 const copy = items.slice();
                 copy.splice(idx, 1);
-                setItems(copy.slice(2));
+                setItems(copy);
             });
 
             let cmpIcon = "";
@@ -61,7 +57,7 @@ export default function App(): React.ReactNode {
                 <Box key={desc.id} display="flex">
                     <Text
                         color={color}
-                    >{`${focusCaret} This is item ${desc.id.slice(0, 5)}: ${desc.name}${cmpIcon}`}</Text>
+                    >{`${focusCaret} item ${desc.id.slice(0, 5)}: ${desc.name}${cmpIcon}`}</Text>
                     <NestedListItem />
                 </Box>
             );
@@ -73,28 +69,16 @@ export default function App(): React.ReactNode {
             util.emitter.emit(cmd);
         }
 
-        if (cmd === "increment") {
-            util.incrementIdx();
-        }
-
-        if (cmd === "decrement") {
-            util.decrementIdx();
-        }
-
-        if (cmd === "goToTop") {
-            util.goToIdx(0);
-        }
-
-        if (cmd === "goToBottom") {
-            util.goToIdx(items.length - 1);
-        }
-
         if (cmd === "windowSize5") {
             util.modifyWinSize(5);
         }
 
         if (cmd === "windowSize10") {
-            util.modifyWinSize(100);
+            util.modifyWinSize(7);
+        }
+
+        if (cmd === "goToMiddle") {
+            util.goToIndex(Math.floor(items.length / 2));
         }
     });
 
@@ -103,11 +87,12 @@ export default function App(): React.ReactNode {
             <Box>
                 <Text>{`Last shoutout was: ${shoutout}`}</Text>
             </Box>
-            <Box display="flex">
+            <Box display="flex" width="50%" borderStyle="round">
                 <List
-                    listItems={itemNodes}
+                    itemGenerators={itemGenerators}
                     viewState={viewState}
                     scrollBar={true}
+                    scrollColor="blue"
                 />
             </Box>
         </>

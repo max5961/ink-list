@@ -33,6 +33,7 @@ export const keybinds = {
     decrement: [{ input: "k" }, { key: "upArrow" }],
     goToTop: { input: "gg" },
     goToBottom: { input: "G" },
+    goToMiddle: { input: "M" },
     toggleDone: { key: "return" },
     updateShoutout: [{ input: " s" }, { input: " o" }],
     deleteItem: { input: "dd" },

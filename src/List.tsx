@@ -3,7 +3,7 @@ import { Box, measureElement } from "ink";
 import { produce } from "immer";
 import EventEmitter from "events";
 import ScrollBar from "./Scrollbar.js";
-import { KbConfig } from "@mmorrissey5961/ink-use-keybinds";
+import useKeybinds, { KbConfig } from "@mmorrissey5961/ink-use-keybinds";
 import { useContext, createContext } from "react";
 import assert from "assert";
 import { shallowEqualObjects } from "shallow-equal";
@@ -21,30 +21,42 @@ export type ULState = {
     idx: number;
     start: number;
     end: number;
-    __WIN_SIZE: number;
+    _winSize: number;
 };
 
-export type ViewState = {
+export type ViewState = Readonly<{
     /* Used within the List component */
-    start: number;
-    end: number;
-    idx: number;
-    windowSize: number;
-    itemsLength: number;
+    _start: number;
+    _end: number;
+    _idx: number;
+    _winSize: number;
+    _itemsLen: number;
 
     /* Used with useKeybinds or useInput hook to emit a command that the ListItem
      * component can include a callback for */
-    emitter: EventEmitter;
-};
+    _emitter: EventEmitter;
+}>;
 
 export type ListUtil = {
-    idx: number;
-    incrementIdx: () => void;
-    decrementIdx: () => void;
-    goToIdx: (n: number) => void;
+    currentIndex: number;
+    nextItem: () => void;
+    prevItem: () => void;
+    goToIndex: (n: number) => void;
     modifyWinSize: (n: number) => void;
     emitter: EventEmitter;
 };
+
+const defaultKeybinds = {
+    increment: [{ key: "downArrow" }, { key: "tab" }],
+    decrement: [{ key: "upArrow" }],
+} satisfies KbConfig;
+
+const defaultVi = {
+    increment: [{ input: "j" }, { key: "downArrow" }, { key: "tab" }],
+    decrement: [{ input: "k" }, { key: "upArrow" }],
+    goToTop: { input: "gg" },
+    goToBottom: { input: "G" },
+} satisfies KbConfig;
 
 export default function useList(
     /* The amount of items to create a list for (the .length property).  NOT the last
@@ -76,29 +88,29 @@ export default function useList(
 
         /* This should only be modified through the modifyWinSize function in
          * order to keep the scrolling functions simple */
-        __WIN_SIZE: opts.windowSize || itemsLength,
+        _winSize: opts.windowSize || itemsLength,
     });
 
     const LENGTH = itemsLength;
-    const WINDOW_SIZE = Math.min(state.__WIN_SIZE || LENGTH, LENGTH);
+    const WINDOW_SIZE = Math.min(state._winSize || LENGTH, LENGTH);
 
     /* Entry point to modify window slice that always runs.  Any state change will
      * execute this function */
     handleScroll();
 
-    function incrementIdx(): void {
+    function nextItem(): void {
         if (state.idx >= LENGTH - 1) return;
 
         handleScroll(state.idx + 1);
     }
 
-    function decrementIdx(): void {
+    function prevItem(): void {
         if (state.idx <= 0) return;
 
         handleScroll(state.idx - 1);
     }
 
-    function goToIdx(nextIdx: number): void {
+    function goToIndex(nextIdx: number): void {
         if (nextIdx > LENGTH - 1 || nextIdx < 0) return;
         handleScroll(nextIdx);
     }
@@ -165,7 +177,7 @@ export default function useList(
             /* Just in case idx somehow gets out of frame after the resize */
             draft.idx = Math.min(draft.idx, draft.end - 1);
             draft.idx = Math.max(draft.idx, draft.start);
-            draft.__WIN_SIZE = nextSize;
+            draft._winSize = nextSize;
         });
 
         if (!shallowEqualObjects(state, nextState)) {
@@ -196,12 +208,22 @@ export default function useList(
             draft.idx = Math.min(nextIdx, LENGTH - 1);
             draft.idx = Math.max(0, draft.idx);
 
+            // next idx out of range (goToIndex)
+            while (draft.idx >= draft.end && draft.end < LENGTH) {
+                ++draft.end;
+                ++draft.start;
+            }
+            while (draft.idx < draft.start && draft.start >= 0) {
+                --draft.end;
+                --draft.start;
+            }
+
+            // next idx 'bumps' into next viewing window
             if (draft.idx === draft.end && draft.end < LENGTH) {
                 ++draft.start;
                 ++draft.end;
                 return;
             }
-
             if (draft.idx === draft.start - 1 && draft.start > 0) {
                 --draft.start;
                 --draft.end;
@@ -230,19 +252,45 @@ export default function useList(
 
             draft.idx = Math.min(nextIdx, LENGTH - 1);
             draft.idx = Math.max(0, draft.idx);
-            const mid = Math.floor((draft.start + draft.end) / 2);
+            const getMid = (s, e) => Math.floor((s + e) / 2);
 
             if (noIdxChange) return;
 
-            if (draft.idx > mid && draft.end !== LENGTH) {
-                draft.start < LENGTH && ++draft.start;
-                draft.end < LENGTH && ++draft.end;
-                return;
+            // next idx out of range (goToIndex)
+            while (draft.idx >= draft.end && draft.end < LENGTH) {
+                ++draft.end;
+                ++draft.start;
+            }
+            while (draft.idx < draft.start && draft.start >= 0) {
+                --draft.end;
+                --draft.start;
+            }
+            // center idx in viewing window if possible
+            while (
+                draft.idx > getMid(draft.start, draft.end) &&
+                draft.start > 0
+            ) {
+                ++draft.start;
+                ++draft.end;
+            }
+            while (
+                draft.idx < getMid(draft.start, draft.end) &&
+                draft.start > 0
+            ) {
+                --draft.start;
+                --draft.end;
             }
 
-            if (draft.idx < mid && draft.start !== 0) {
-                draft.start > 0 && --draft.start;
-                draft.end > 0 && --draft.end;
+            // next idx 'bumps' into next viewing window
+            const mid = getMid(draft.start, draft.end);
+            if (draft.idx > mid && draft.end !== LENGTH) {
+                ++draft.start;
+                ++draft.end;
+                return;
+            }
+            if (draft.idx < mid && draft.start > 0) {
+                --draft.start;
+                --draft.end;
                 return;
             }
         });
@@ -250,25 +298,63 @@ export default function useList(
 
     const emitter = opts.emitter || new EventEmitter();
 
+    if (opts.keybinds.auto && !opts.keybinds.vi) {
+        useKeybinds(defaultKeybinds, (cmd) => {
+            if (cmd) {
+                emitter.emit(cmd);
+            }
+
+            if (cmd === "increment") {
+                nextItem();
+            }
+
+            if (cmd === "decrement") {
+                prevItem();
+            }
+        });
+    } else if (opts.keybinds.auto && opts.keybinds.vi) {
+        useKeybinds(defaultVi, (cmd) => {
+            if (cmd) {
+                emitter.emit(cmd);
+            }
+
+            if (cmd === "increment") {
+                nextItem();
+            }
+
+            if (cmd === "decrement") {
+                prevItem();
+            }
+
+            if (cmd === "goToTop") {
+                goToIndex(0);
+            }
+
+            if (cmd === "goToBottom") {
+                goToIndex(LENGTH - 1);
+            }
+        });
+    }
+
     /* This must be passed into the List component */
-    const viewState = {
+    const viewState: ViewState = Object.freeze({
         /* Used within the List component */
-        start: state.start,
-        end: state.end,
-        idx: state.idx,
-        windowSize: WINDOW_SIZE,
-        itemsLength,
+        _start: state.start,
+        _end: state.end,
+        _idx: state.idx,
+        _winSize: WINDOW_SIZE,
+        _itemsLen: LENGTH,
 
         /* Used with useKeybinds or useInput hook to emit a command that the ListItem
          * component can include a callback for */
-        emitter,
-    };
+        _emitter: emitter,
+    });
 
     const util = {
-        idx: state.idx,
-        incrementIdx,
-        decrementIdx,
-        goToIdx,
+        currentIndex: state.idx,
+        nextItem,
+        prevItem,
+        goToIndex,
         modifyWinSize,
         emitter,
     };
@@ -284,16 +370,17 @@ interface ItemGen<T extends KbConfig = any> {
 }
 
 type ListProps<T extends KbConfig = any> = {
-    listItems: ItemGen<T>[];
+    itemGenerators: ItemGen<T>[];
     viewState: ViewState;
     scrollBar?: boolean;
-    centerScroll?: boolean;
+    scrollColor: string;
 };
 
 export function List<T extends KbConfig = any>({
-    listItems,
+    itemGenerators,
     viewState,
     scrollBar = true,
+    scrollColor = "white",
 }: ListProps<T>): ReactNode {
     const [hw, setHw] = useState<{ height: number; width: number }>({
         height: 0,
@@ -302,31 +389,29 @@ export function List<T extends KbConfig = any>({
 
     const ref = useRef();
 
-    const generatedItems: ReactNode[] = listItems
+    const generatedItems: ReactNode[] = itemGenerators
         // Create the nodes
         .map((item: ItemGen, idx: number) => {
             const onCmd: OnCmd<T> = (...args: Parameters<OnCmd>) => {
-                if (idx !== viewState.idx) return;
+                if (idx !== viewState._idx) return;
 
                 /* Make sure that on every re-render we are using the most recent
                  * handler which prevents stale closure as well as unneccessary
                  * listeners */
-                viewState.emitter.removeAllListeners(args[0]);
-                viewState.emitter.on(args[0], args[1]);
+                viewState._emitter.removeAllListeners(args[0]);
+                viewState._emitter.on(args[0], args[1]);
             };
 
-            const node = item(idx === viewState.idx, onCmd);
-
+            const node = item(idx === viewState._idx, onCmd);
             const key = (node as React.ReactElement).key;
-
-            const isHidden = idx < viewState.start || idx >= viewState.end;
+            const isHidden = idx < viewState._start || idx >= viewState._end;
 
             return (
                 <ListItem
                     key={key}
                     onCmd={onCmd}
-                    isFocus={idx === viewState.idx}
-                    emitter={viewState.emitter}
+                    isFocus={idx === viewState._idx}
+                    emitter={viewState._emitter}
                     isHidden={isHidden}
                 >
                     {node}
@@ -339,15 +424,10 @@ export function List<T extends KbConfig = any>({
             const { width, height } = measureElement(ref.current as any);
             setHw({ height, width });
         }
-    }, [listItems, viewState]);
+    }, [itemGenerators, viewState]);
 
     return (
-        <Box
-            flexDirection="row"
-            borderStyle="round"
-            justifyContent="space-between"
-            width="50%"
-        >
+        <Box flexDirection="row" justifyContent="space-between" width="100%">
             <Box display="flex" flexDirection="column">
                 <Box flexShrink={1} flexDirection="column" ref={ref as any}>
                     {generatedItems}
@@ -359,6 +439,7 @@ export function List<T extends KbConfig = any>({
                     viewState={viewState}
                     height={hw.height}
                     width={hw.width}
+                    color={scrollColor}
                 />
             )}
         </Box>
@@ -389,7 +470,7 @@ type LIContext<T extends KbConfig = any> = {
 
 const ListItemContext = createContext<LIContext | null>(null);
 
-export function ListItem<T extends KbConfig = any>({
+function ListItem<T extends KbConfig = any>({
     children,
     onCmd,
     emitter,

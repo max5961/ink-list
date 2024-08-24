@@ -1,27 +1,27 @@
-import React, { useEffect } from "react";
-import { Box, measureElement, Text } from "ink";
-import { ListWindow } from "./List.js";
+import React from "react";
+import { Box, Text } from "ink";
+import { ViewState } from "./List.js";
 
 type SBProps = {
-    listWindow: ListWindow;
+    viewState: ViewState;
     height: number;
     width: number;
 };
 
-function ScrollBar({ listWindow, height, width }: SBProps): React.ReactNode {
-    const { start, mid, end, windowSize, listSize, idx } = listWindow;
+function ScrollBar({ viewState, height, width }: SBProps): React.ReactNode {
+    const { start, end, windowSize, itemsLength, idx } = viewState;
 
-    if (!listSize || windowSize >= listSize) return null;
+    if (!itemsLength || windowSize >= itemsLength) return null;
 
-    // windowSize / listSize gets the relative percentage of the window to all items
-    // line height * (windowSize / listSize) gets the lines the bar should take up
+    // windowSize / itemsLength gets the relative percentage of the window to all items
+    // line height * (windowSize / itemsLength) gets the lines the bar should take up
     const barHeight = Math.max(
         0,
-        Math.ceil(height * (Math.min(listSize, windowSize) / listSize)),
+        Math.ceil(height * (Math.min(itemsLength, windowSize) / itemsLength)),
     );
 
-    const preStart = height * (start / listSize);
-    const preEnd = height * ((listSize - end) / listSize);
+    const preStart = height * (start / itemsLength);
+    const preEnd = height * ((itemsLength - end) / itemsLength);
 
     let startHeight = Math.max(0, Math.floor(preStart));
     let endHeight = Math.max(0, Math.floor(preEnd));

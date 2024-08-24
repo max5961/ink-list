@@ -7,9 +7,15 @@ import { Item, initialItems, keybinds } from "./initialData.js";
 export default function App(): React.ReactNode {
     const [items, setItems] = useState<Item[]>(initialItems);
     const [shoutout, setShoutout] = useState<string>("");
-    const [ws, setWs] = useState<number>(10);
+    const [ws, setWs] = useState<number>(5);
+    // if (items.length < 10) {
+    //     console.log(items.length);
+    // }
 
-    const { listWindow, util } = useList(items.length, { windowSize: ws });
+    const { viewState, util } = useList(items.length, {
+        windowSize: ws,
+        centerScroll: false,
+    });
 
     /* _____ DEBUG _____ */
     // console.log(`start: ${listWindow.start}`);
@@ -38,7 +44,7 @@ export default function App(): React.ReactNode {
             onCmd("deleteItem", () => {
                 const copy = items.slice();
                 copy.splice(idx, 1);
-                setItems(copy);
+                setItems(copy.slice(2));
             });
 
             let cmpIcon = "";
@@ -62,7 +68,7 @@ export default function App(): React.ReactNode {
         };
     });
 
-    useKeybinds((cmd) => {
+    useKeybinds(keybinds, (cmd) => {
         if (cmd) {
             util.emitter.emit(cmd);
         }
@@ -84,13 +90,13 @@ export default function App(): React.ReactNode {
         }
 
         if (cmd === "windowSize5") {
-            setWs(5);
+            util.modifyWinSize(5);
         }
 
         if (cmd === "windowSize10") {
-            setWs(10);
+            util.modifyWinSize(100);
         }
-    }, keybinds);
+    });
 
     return (
         <>
@@ -100,7 +106,7 @@ export default function App(): React.ReactNode {
             <Box display="flex">
                 <List
                     listItems={itemNodes}
-                    listWindow={listWindow}
+                    viewState={viewState}
                     scrollBar={true}
                 />
             </Box>
@@ -113,6 +119,7 @@ function NestedListItem(): React.ReactNode {
 
     const onCmd = useOnCmd<typeof keybinds>();
     const isFocus = useIsFocus();
+
     const color = isFocus ? "blue" : "";
 
     onCmd("incSubCount", () => {

@@ -3,16 +3,16 @@ import { Box, measureElement } from "ink";
 import { produce } from "immer";
 import EventEmitter from "events";
 import ScrollBar from "./Scrollbar.js";
-import deepEqual from "deep-equal";
 import { KbConfig } from "@mmorrissey5961/ink-use-keybinds";
 import { useContext, createContext } from "react";
 import assert from "assert";
+import { shallowEqualObjects } from "shallow-equal";
 
 export type ULConfig = {
     windowSize?: number | null;
     keybinds?: { auto?: boolean; vi?: boolean };
     scrollBar?: boolean;
-    scrollMiddle?: boolean;
+    centerScroll?: boolean;
     cmdHandler?: any;
     emitter?: EventEmitter;
 };
@@ -21,17 +21,16 @@ export type ULState = {
     idx: number;
     start: number;
     end: number;
-    mid: number;
+    __WIN_SIZE: number;
 };
 
-export type ListWindow = {
+export type ViewState = {
     /* Used within the List component */
     start: number;
-    mid: number;
     end: number;
     idx: number;
     windowSize: number;
-    listSize: number;
+    itemsLength: number;
 
     /* Used with useKeybinds or useInput hook to emit a command that the ListItem
      * component can include a callback for */
@@ -43,6 +42,7 @@ export type ListUtil = {
     incrementIdx: () => void;
     decrementIdx: () => void;
     goToIdx: (n: number) => void;
+    modifyWinSize: (n: number) => void;
     emitter: EventEmitter;
 };
 
@@ -51,167 +51,213 @@ export default function useList(
      * index of of the items.  Rather than encapsulate this hook within the List
      * component, this gives more freedom to the user to utilize the list data at
      * the cost of some added complexity. */
-    listSize: number,
+    itemsLength: number,
     opts: ULConfig = {},
-): { listWindow: ListWindow; util: ListUtil } {
+): { viewState: ViewState; util: ListUtil } {
     /* Set default opts but override if provided */
     opts = {
         windowSize: null,
         scrollBar: false,
-        scrollMiddle: false,
+        centerScroll: false,
         emitter: new EventEmitter(),
         ...opts,
     };
     opts.keybinds = opts.keybinds || { auto: true, vi: true };
 
-    const MAX_INDEX = listSize - 1;
-    const WINDOW_SIZE = opts.windowSize || MAX_INDEX + 1;
-
-    const windowState = {
+    const [state, setState] = useState<ULState>({
         /* The index within the entire list of React Nodes */
         idx: 0,
 
         /* The index of the first element within the viewing window */
         start: 0,
 
-        /* The index of the last element within the viewing window */
-        end: WINDOW_SIZE,
+        /* The index AFTER the last element within the viewing window */
+        end: Math.min(opts.windowSize || itemsLength, itemsLength),
 
-        /* The index of the middle element between the start and end indexes */
-        mid: Math.floor(WINDOW_SIZE / 2),
-    };
+        /* This should only be modified through the modifyWinSize function in
+         * order to keep the scrolling functions simple */
+        __WIN_SIZE: opts.windowSize || itemsLength,
+    });
 
-    const [state, setState] = useState<ULState>(windowState);
-    // console.log(`${state.end}, ${MAX_INDEX}`);
+    const LENGTH = itemsLength;
+    const WINDOW_SIZE = Math.min(state.__WIN_SIZE || LENGTH, LENGTH);
 
-    /* Entry point to modify window slice that always runs, so this runs on every
-     * state change made to the component that calls this hook.  It slices the
-     * input array from start to (but not including) end */
-    if (state.idx < 0) {
-        handleIdxChanges(0);
-    } else {
-        handleIdxChanges();
-    }
+    /* Entry point to modify window slice that always runs.  Any state change will
+     * execute this function */
+    handleScroll();
 
     function incrementIdx(): void {
-        if (state.idx >= MAX_INDEX) return;
-        handleIdxChanges(state.idx + 1);
+        if (state.idx >= LENGTH - 1) return;
+
+        handleScroll(state.idx + 1);
     }
 
     function decrementIdx(): void {
         if (state.idx <= 0) return;
-        handleIdxChanges(state.idx - 1);
+
+        handleScroll(state.idx - 1);
     }
 
     function goToIdx(nextIdx: number): void {
-        if (nextIdx > MAX_INDEX || nextIdx < 0) return;
-        handleIdxChanges(nextIdx);
+        if (nextIdx > LENGTH - 1 || nextIdx < 0) return;
+        handleScroll(nextIdx);
     }
 
-    if (state.idx > MAX_INDEX && listSize !== 0) {
-        handleIdxChanges();
+    function handleScroll(nextIdx: number = state.idx): void {
+        const nextState = opts.centerScroll
+            ? getCenterScrollChanges(nextIdx)
+            : getNormalScrollChanges(nextIdx);
+
+        if (!shallowEqualObjects(state, nextState)) {
+            setState(nextState);
+        }
     }
 
-    if (state.idx < 0) {
-        handleIdxChanges(0);
-    }
+    function modifyWinSize(nextSize: number): void {
+        if (LENGTH === 0) return;
 
-    function handleIdxChanges(nextIdx: number = state.idx) {
         const nextState = produce(state, (draft) => {
-            if (draft.start === 0 && draft.end === 0) {
-                return;
-            }
+            nextSize = Math.abs(nextSize);
+            nextSize = Math.min(nextSize, LENGTH);
 
-            // This solves the issue, but shortens the list when deleting last
-            // item in the list when that shortens the slice to WINDOW_SIZE
-            if (draft.end > listSize && listSize > WINDOW_SIZE) {
-                while (draft.end > listSize && draft.start > 0) {
-                    --draft.end;
-                    --draft.start;
-                    --draft.idx;
+            let target = nextSize - WINDOW_SIZE;
+            while (target) {
+                /* nextSize is greater than current size.  It is also impossible
+                 * to slice the idx out of frame when increasing the window */
+                if (target > 0) {
+                    if (draft.end < LENGTH) {
+                        ++draft.end;
+                    } else if (draft.start > 0) {
+                        --draft.start;
+                    } else {
+                        // For dev
+                        assert(
+                            false,
+                            "Impossible case in modifyWinSize (inc win size)",
+                        );
+                    }
+
+                    --target;
+                } else {
+                    /* Since we are decreasing the window size it is possible to
+                     * cut the idx out of frame. Cut from bottom as long as possible
+                     * without cutting idx out of frame, then cut from top. */
+                    if (draft.idx < draft.end - 1) {
+                        --draft.end;
+                    } else if (draft.idx <= draft.end - 1) {
+                        ++draft.start;
+                    } else {
+                        // For dev
+                        assert(
+                            false,
+                            "Impossible case in modifyWinSize (dec win size)",
+                        );
+                    }
+
+                    ++target;
                 }
-                return;
             }
 
-            // if (draft.end > listSize && listSize < )
+            // For dev
+            const msg = "idx out of range on window resize";
+            assert(draft.idx < draft.end && draft.idx >= draft.start, msg);
 
-            draft.idx = nextIdx;
+            /* Just in case idx somehow gets out of frame after the resize */
+            draft.idx = Math.min(draft.idx, draft.end - 1);
+            draft.idx = Math.max(draft.idx, draft.start);
+            draft.__WIN_SIZE = nextSize;
+        });
 
-            if (draft.idx === draft.end) {
+        if (!shallowEqualObjects(state, nextState)) {
+            setState(nextState);
+        }
+    }
+
+    function getNormalScrollChanges(nextIdx: number): ULState {
+        return produce(state, (draft) => {
+            if (LENGTH === 0) return;
+            if (
+                (draft.start === 0 && draft.end === 0) ||
+                draft.start === draft.end
+            )
+                return;
+
+            const getTrueWindowSize = () => {
+                return Math.min(LENGTH, draft.end) - draft.start;
+            };
+
+            let trueWindowSize = getTrueWindowSize();
+            while (trueWindowSize < WINDOW_SIZE && trueWindowSize < LENGTH) {
+                --draft.start;
+                --draft.end;
+                trueWindowSize = getTrueWindowSize();
+            }
+
+            draft.idx = Math.min(nextIdx, LENGTH - 1);
+            draft.idx = Math.max(0, draft.idx);
+
+            if (draft.idx === draft.end && draft.end < LENGTH) {
                 ++draft.start;
                 ++draft.end;
                 return;
             }
 
-            if (draft.idx === draft.start - 1) {
+            if (draft.idx === draft.start - 1 && draft.start > 0) {
                 --draft.start;
                 --draft.end;
                 return;
             }
-
-            // handle set idx out of list range (deleting items at the end of the list)
-            if (draft.idx > MAX_INDEX) {
-                while (draft.idx > MAX_INDEX) {
-                    --draft.idx;
-                    --draft.end;
-                    draft.start - 1 >= 0 && --draft.start;
-                }
-                return;
-            }
-
-            // handle set idx greater than window range
-            if (draft.idx > draft.end) {
-                while (draft.idx >= draft.end && draft.end <= MAX_INDEX) {
-                    ++draft.start;
-                    ++draft.end;
-                }
-                return;
-            }
-
-            // handle set idx less than window range
-            if (draft.idx < draft.start) {
-                while (draft.idx < draft.start && draft.start >= 0) {
-                    --draft.start;
-                    --draft.end;
-                }
-            }
-
-            // This causes an infinite loop somehow
-            // while (draft.end > MAX_INDEX && draft.start > 0) {
-            //     --draft.end;
-            //     --draft.start;
-            // }
-            // // handle window gets cut short
-            // const currSize = draft.end - draft.start;
-            // // currSize is NEVER getting smaller except at end
-            // // console.log(currSize);
-            // if (currSize < WINDOW_SIZE) {
-            //     while (draft.end + 1 <= MAX_INDEX && currSize < WINDOW_SIZE) {
-            //         ++draft.end;
-            //     }
-            //
-            //     while (draft.start - 1 >= 0 && currSize < WINDOW_SIZE) {
-            //         --draft.start;
-            //     }
-            // }
         });
+    }
 
-        if (!deepEqual(state, nextState)) {
-            setState(nextState);
-        }
+    function getCenterScrollChanges(nextIdx: number): ULState {
+        const noIdxChange = nextIdx === state.idx;
+
+        return produce(state, (draft) => {
+            if (LENGTH === 0) return;
+            if (draft.start === 0 && draft.end === 0) return;
+
+            const getTrueWindowSize = () => {
+                return Math.min(LENGTH, draft.end) - draft.start;
+            };
+
+            let trueWindowSize = getTrueWindowSize();
+            while (trueWindowSize < WINDOW_SIZE && trueWindowSize < LENGTH) {
+                --draft.start;
+                --draft.end;
+                trueWindowSize = getTrueWindowSize();
+            }
+
+            draft.idx = Math.min(nextIdx, LENGTH - 1);
+            draft.idx = Math.max(0, draft.idx);
+            const mid = Math.floor((draft.start + draft.end) / 2);
+
+            if (noIdxChange) return;
+
+            if (draft.idx > mid && draft.end !== LENGTH) {
+                draft.start < LENGTH && ++draft.start;
+                draft.end < LENGTH && ++draft.end;
+                return;
+            }
+
+            if (draft.idx < mid && draft.start !== 0) {
+                draft.start > 0 && --draft.start;
+                draft.end > 0 && --draft.end;
+                return;
+            }
+        });
     }
 
     const emitter = opts.emitter || new EventEmitter();
 
     /* This must be passed into the List component */
-    const listWindow = {
+    const viewState = {
         /* Used within the List component */
         start: state.start,
-        mid: state.mid,
         end: state.end,
         idx: state.idx,
         windowSize: WINDOW_SIZE,
-        listSize,
+        itemsLength,
 
         /* Used with useKeybinds or useInput hook to emit a command that the ListItem
          * component can include a callback for */
@@ -223,11 +269,12 @@ export default function useList(
         incrementIdx,
         decrementIdx,
         goToIdx,
+        modifyWinSize,
         emitter,
     };
 
     return {
-        listWindow,
+        viewState,
         util,
     };
 }
@@ -238,14 +285,14 @@ interface ItemGen<T extends KbConfig = any> {
 
 type ListProps<T extends KbConfig = any> = {
     listItems: ItemGen<T>[];
-    listWindow: ListWindow;
+    viewState: ViewState;
     scrollBar?: boolean;
-    scrollMiddle?: boolean;
+    centerScroll?: boolean;
 };
 
 export function List<T extends KbConfig = any>({
     listItems,
-    listWindow,
+    viewState,
     scrollBar = true,
 }: ListProps<T>): ReactNode {
     const [hw, setHw] = useState<{ height: number; width: number }>({
@@ -259,27 +306,27 @@ export function List<T extends KbConfig = any>({
         // Create the nodes
         .map((item: ItemGen, idx: number) => {
             const onCmd: OnCmd<T> = (...args: Parameters<OnCmd>) => {
-                if (idx !== listWindow.idx) return;
+                if (idx !== viewState.idx) return;
 
                 /* Make sure that on every re-render we are using the most recent
-                 * handler which prevents stale closure as well as  unneccessary
-                 * listeners that will lead to max listener warnings */
-                listWindow.emitter.removeAllListeners(args[0]);
-                listWindow.emitter.on(args[0], args[1]);
+                 * handler which prevents stale closure as well as unneccessary
+                 * listeners */
+                viewState.emitter.removeAllListeners(args[0]);
+                viewState.emitter.on(args[0], args[1]);
             };
 
-            const node = item(idx === listWindow.idx, onCmd);
+            const node = item(idx === viewState.idx, onCmd);
 
             const key = (node as React.ReactElement).key;
 
-            const isHidden = idx < listWindow.start || idx >= listWindow.end;
+            const isHidden = idx < viewState.start || idx >= viewState.end;
 
             return (
                 <ListItem
                     key={key}
                     onCmd={onCmd}
-                    isFocus={idx === listWindow.idx}
-                    emitter={listWindow.emitter}
+                    isFocus={idx === viewState.idx}
+                    emitter={viewState.emitter}
                     isHidden={isHidden}
                 >
                     {node}
@@ -292,7 +339,7 @@ export function List<T extends KbConfig = any>({
             const { width, height } = measureElement(ref.current as any);
             setHw({ height, width });
         }
-    }, [listItems, listWindow]);
+    }, [listItems, viewState]);
 
     return (
         <Box
@@ -305,11 +352,11 @@ export function List<T extends KbConfig = any>({
                 <Box flexShrink={1} flexDirection="column" ref={ref as any}>
                     {generatedItems}
                 </Box>
-                <Box flexGrow={1}></Box>;
+                <Box flexGrow={1}></Box>
             </Box>
             {scrollBar && (
                 <ScrollBar
-                    listWindow={listWindow}
+                    viewState={viewState}
                     height={hw.height}
                     width={hw.width}
                 />
@@ -368,27 +415,26 @@ export function ListItem<T extends KbConfig = any>({
     );
 }
 
+const errMsg = (hook: string) => {
+    return `It appears you are attempting to use the ${hook} hook outside the context of a List component (http://github.com/max5961/ink-list)`;
+};
 export function useListItemContext(): LIContext {
     const context = useContext(ListItemContext);
-
-    const errMsg =
-        "It appears that you are attempting to use ListItemContext outside the context of the List component";
-    assert(context, errMsg);
-
+    assert(context, errMsg("useListItemContext"));
     return context;
 }
-
 export function useOnCmd<T extends object = any>(): OnCmd<T> {
-    const context = useListItemContext();
+    const context = useContext(ListItemContext);
+    assert(context, errMsg("useOnCmd"));
     return context.onCmd;
 }
-
 export function useIsFocus(): boolean {
-    const context = useListItemContext();
+    const context = useContext(ListItemContext);
+    assert(context, errMsg("useIsFocus"));
     return context.isFocus;
 }
-
 export function useListItemEmitter(): EventEmitter {
-    const context = useListItemContext();
+    const context = useContext(ListItemContext);
+    assert(context, errMsg("useListItemEmitter"));
     return context.emitter;
 }

@@ -29,7 +29,7 @@ export const initialItems: Item[] = [
 ];
 
 export const keybinds = {
-    increment: [{ input: "j" }, { key: "downArrow" }],
+    increment: [{ input: "j" }, { key: "downArrow" }, { key: "tab" }],
     decrement: [{ input: "k" }, { key: "upArrow" }],
     goToTop: { input: "gg" },
     goToBottom: { input: "G" },

@@ -180,6 +180,8 @@ export default function useList(
             draft._winSize = nextSize;
         });
 
+        /* TODO: Split center scroll functions so that we can center after a window
+         * size adjustment */
         if (!shallowEqualObjects(state, nextState)) {
             setState(nextState);
         }

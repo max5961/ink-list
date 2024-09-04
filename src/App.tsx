@@ -74,7 +74,7 @@ export default function App(): React.ReactNode {
         }
 
         if (cmd === "windowSize10") {
-            util.modifyWinSize(7);
+            util.modifyWinSize(100);
         }
 
         if (cmd === "goToMiddle") {
